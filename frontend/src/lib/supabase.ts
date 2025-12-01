@@ -1,9 +1,23 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Create a dummy client for build time when env vars are not available
+const createSupabaseClient = (): SupabaseClient => {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    // Return a mock client for build time
+    return createClient('https://placeholder.supabase.co', 'placeholder-key');
+  }
+  return createClient(supabaseUrl, supabaseAnonKey);
+};
+
+export const supabase = createSupabaseClient();
+
+// Check if Supabase is properly configured
+const isSupabaseConfigured = () => {
+  return supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('placeholder');
+};
 
 // Database helper functions
 export async function getMedicines(userId: string) {
