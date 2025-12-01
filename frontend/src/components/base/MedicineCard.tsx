@@ -5,9 +5,10 @@ interface MedicineCardProps {
   time: string;
   status: 'completed' | 'pending' | 'missed';
   onClick?: () => void;
+  subtitle?: string;
 }
 
-export default function MedicineCard({ name, time, status, onClick }: MedicineCardProps) {
+export default function MedicineCard({ name, time, status, onClick, subtitle }: MedicineCardProps) {
   const getStatusIcon = () => {
     switch (status) {
       case 'completed':
@@ -58,6 +59,9 @@ export default function MedicineCard({ name, time, status, onClick }: MedicineCa
           <div>
             <h3 className="text-lg font-semibold text-gray-900">{name}</h3>
             <p className="text-base text-gray-600">{time}</p>
+            {subtitle && (
+              <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
+            )}
           </div>
         </div>
         <div className="text-right">

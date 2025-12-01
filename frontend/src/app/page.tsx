@@ -15,10 +15,10 @@ export default function Home() {
     fetchAll();
   }, [fetchAll]);
 
-  // 오늘의 스케줄 계산 (캐시된 alarms 사용)
-  const { todaySchedules, nextAlarm } = useMemo(() => {
+  // 오늘의 스케줄 계산 (캐시된 alarms 사용) - 같은 시간 그룹화
+  const { groupedSchedules, nextAlarm, totalCount } = useMemo(() => {
     if (!alarms || alarms.length === 0) {
-      return { todaySchedules: [], nextAlarm: null };
+      return { groupedSchedules: [], nextAlarm: null, totalCount: 0 };
     }
 
     const now = new Date();
@@ -30,22 +30,30 @@ export default function Home() {
       a.enabled && a.days?.includes(today)
     );
 
-    // 오늘의 복용 스케줄 생성
-    const schedules = todayAlarms.map(alarm => ({
-      id: alarm.id,
-      name: alarm.medicine_name,
-      time: alarm.time,
-      status: (alarm.time < currentTime ? 'completed' : 'pending') as 'pending' | 'completed',
-    })).sort((a, b) => a.time.localeCompare(b.time));
+    // 시간별로 그룹화
+    const timeGroups = new Map<string, string[]>();
+    todayAlarms.forEach(alarm => {
+      const existing = timeGroups.get(alarm.time) || [];
+      existing.push(alarm.medicine_name);
+      timeGroups.set(alarm.time, existing);
+    });
+
+    // 그룹화된 스케줄 생성
+    const grouped = Array.from(timeGroups.entries())
+      .map(([time, names]) => ({
+        time,
+        names,
+        status: (time < currentTime ? 'completed' : 'pending') as 'pending' | 'completed',
+      }))
+      .sort((a, b) => a.time.localeCompare(b.time));
 
     // 다음 알람 찾기
-    const nextA = todayAlarms
-      .filter(a => a.time > currentTime)
-      .sort((a, b) => a.time.localeCompare(b.time))[0];
+    const nextGroup = grouped.find(g => g.time > currentTime);
 
     return {
-      todaySchedules: schedules,
-      nextAlarm: nextA ? { time: nextA.time, name: nextA.medicine_name } : null,
+      groupedSchedules: grouped,
+      nextAlarm: nextGroup ? { time: nextGroup.time, names: nextGroup.names } : null,
+      totalCount: todayAlarms.length,
     };
   }, [alarms]);
 
@@ -57,7 +65,8 @@ export default function Home() {
     return `${period} ${displayHour}시 ${minutes !== '00' ? minutes + '분' : ''}`.trim();
   };
 
-  const pendingCount = todaySchedules.filter(s => s.status === 'pending').length;
+  const pendingCount = groupedSchedules.filter(s => s.status === 'pending')
+    .reduce((acc, g) => acc + g.names.length, 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -70,7 +79,7 @@ export default function Home() {
           </h1>
           <p className="text-lg text-gray-600">
             {isLoading ? '로딩 중...' :
-              todaySchedules.length === 0
+              groupedSchedules.length === 0
                 ? '등록된 복용 일정이 없습니다'
                 : pendingCount > 0
                   ? `오늘 복용해야 할 약이 ${pendingCount}개 있습니다`
@@ -85,7 +94,7 @@ export default function Home() {
               <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
               <p className="text-gray-500">복용 일정을 불러오는 중...</p>
             </div>
-          ) : todaySchedules.length === 0 ? (
+          ) : groupedSchedules.length === 0 ? (
             <div className="bg-white rounded-xl p-6 text-center">
               <p className="text-gray-500 mb-4">등록된 약이 없습니다</p>
               <button
@@ -96,22 +105,25 @@ export default function Home() {
               </button>
             </div>
           ) : (
-            todaySchedules.slice(0, 4).map((schedule) => (
+            groupedSchedules.slice(0, 4).map((schedule) => (
               <MedicineCard
-                key={schedule.id}
-                name={`💊 ${schedule.name}`}
+                key={schedule.time}
+                name={schedule.names.length > 1
+                  ? `💊 ${schedule.names[0]} 외 ${schedule.names.length - 1}개`
+                  : `💊 ${schedule.names[0]}`}
                 time={schedule.time}
                 status={schedule.status}
                 onClick={() => router.push('/medicine')}
+                subtitle={schedule.names.length > 1 ? schedule.names.join(', ') : undefined}
               />
             ))
           )}
-          {todaySchedules.length > 4 && (
+          {groupedSchedules.length > 4 && (
             <button
               onClick={() => router.push('/alarm')}
               className="w-full text-center text-blue-600 font-semibold py-2"
             >
-              +{todaySchedules.length - 4}개 더 보기
+              +{groupedSchedules.length - 4}개 더 보기
             </button>
           )}
         </div>
@@ -126,7 +138,9 @@ export default function Home() {
               <div>
                 <h3 className="text-lg font-semibold text-blue-900">다음 알림</h3>
                 <p className="text-base text-blue-700">
-                  {formatTime(nextAlarm.time)} - {nextAlarm.name}
+                  {formatTime(nextAlarm.time)} - {nextAlarm.names.length > 1
+                    ? `${nextAlarm.names[0]} 외 ${nextAlarm.names.length - 1}개`
+                    : nextAlarm.names[0]}
                 </p>
               </div>
             </div>
