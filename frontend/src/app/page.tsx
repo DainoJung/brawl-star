@@ -9,33 +9,37 @@ import { useMedicineStore } from '@/store/medicine';
 
 export default function Home() {
   const router = useRouter();
-  const { userName, alarms, isLoading, fetchAll } = useMedicineStore();
+  const { userName, medicines, isLoading, fetchAll } = useMedicineStore();
 
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
 
-  // 오늘의 스케줄 계산 (캐시된 alarms 사용) - 같은 시간 그룹화
-  const { groupedSchedules, nextAlarm, totalCount } = useMemo(() => {
-    if (!alarms || alarms.length === 0) {
-      return { groupedSchedules: [], nextAlarm: null, totalCount: 0 };
+  // 오늘의 스케줄 계산 (medicines 사용) - 같은 시간 그룹화
+  const { groupedSchedules, nextAlarm } = useMemo(() => {
+    if (!medicines || medicines.length === 0) {
+      return { groupedSchedules: [], nextAlarm: null };
     }
 
     const now = new Date();
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     const today = ['일', '월', '화', '수', '목', '금', '토'][now.getDay()];
 
-    // 오늘 요일에 해당하는 활성화된 알람만 필터
-    const todayAlarms = alarms.filter(a =>
-      a.enabled && a.days?.includes(today)
+    // 오늘 요일에 해당하는 약만 필터 (days가 없으면 매일)
+    const todayMedicines = medicines.filter(m =>
+      !m.days || m.days.length === 0 || m.days.includes(today)
     );
 
     // 시간별로 그룹화
     const timeGroups = new Map<string, string[]>();
-    todayAlarms.forEach(alarm => {
-      const existing = timeGroups.get(alarm.time) || [];
-      existing.push(alarm.medicine_name);
-      timeGroups.set(alarm.time, existing);
+    todayMedicines.forEach(medicine => {
+      if (medicine.times && Array.isArray(medicine.times)) {
+        medicine.times.forEach((time: string) => {
+          const existing = timeGroups.get(time) || [];
+          existing.push(medicine.name);
+          timeGroups.set(time, existing);
+        });
+      }
     });
 
     // 그룹화된 스케줄 생성
@@ -53,9 +57,8 @@ export default function Home() {
     return {
       groupedSchedules: grouped,
       nextAlarm: nextGroup ? { time: nextGroup.time, names: nextGroup.names } : null,
-      totalCount: todayAlarms.length,
     };
-  }, [alarms]);
+  }, [medicines]);
 
   const formatTime = (time: string) => {
     const [hours, minutes] = time.split(':');

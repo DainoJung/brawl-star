@@ -3,6 +3,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import TopHeader from '@/components/base/TopHeader';
+import { addMedicine } from '@/lib/supabase';
+import { useMedicineStore } from '@/store/medicine';
+
+const TEMP_USER_ID = '00000000-0000-0000-0000-000000000001';
 
 interface MedicineInfo {
   id: string;
@@ -241,21 +245,36 @@ export default function MedicineSearchPage() {
     setAddForm({ ...addForm, times: newTimes });
   };
 
-  const handleAddMedicine = () => {
-    // 실제 구현에서는 API 호출 또는 상태 관리
-    console.log('Adding medicine:', addForm);
+  const { invalidateCache } = useMedicineStore();
+  const [isAdding, setIsAdding] = useState(false);
 
-    // 로컬 스토리지에 저장 (간단한 데모용)
-    const existingMedicines = JSON.parse(localStorage.getItem('medicines') || '[]');
-    const newMedicine = {
-      id: Date.now().toString(),
-      ...addForm,
-    };
-    localStorage.setItem('medicines', JSON.stringify([...existingMedicines, newMedicine]));
+  const handleAddMedicine = async () => {
+    if (isAdding) return;
 
-    setShowAddModal(false);
-    setSelectedMedicine(null);
-    router.push('/medicine');
+    setIsAdding(true);
+    try {
+      await addMedicine({
+        user_id: TEMP_USER_ID,
+        name: addForm.name,
+        dosage: addForm.dosage,
+        frequency: addForm.frequency,
+        timing: addForm.beforeMeal ? 'before_meal' : 'after_meal',
+        times: addForm.times,
+        days: ['월', '화', '수', '목', '금', '토', '일'],
+      });
+
+      // 캐시 무효화하여 medicine 페이지에서 새로운 데이터를 가져오도록 함
+      invalidateCache();
+
+      setShowAddModal(false);
+      setSelectedMedicine(null);
+      router.push('/medicine');
+    } catch (error) {
+      console.error('Failed to add medicine:', error);
+      alert('약 추가에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   return (
@@ -512,9 +531,10 @@ export default function MedicineSearchPage() {
               </button>
               <button
                 onClick={handleAddMedicine}
-                className="flex-1 py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-colors"
+                disabled={isAdding}
+                className="flex-1 py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-colors disabled:bg-blue-300 disabled:cursor-not-allowed"
               >
-                추가하기
+                {isAdding ? '추가 중...' : '추가하기'}
               </button>
             </div>
           </div>

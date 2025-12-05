@@ -244,7 +244,7 @@ class GeminiService:
                 context_info = f"\n\n사용자가 현재 복용 중인 약: {', '.join(context['medicines'])}"
 
             prompt = f"""
-            당신은 복약 관리 AI 어시스턴트입니다. 사용자의 약물 관련 질문에 친절하고 정확하게 답변해주세요.
+            너는 복약 관리 AI 어시스턴트야. 사용자의 약물 관련 질문에 친절하고 정확하게 답변해줘.
             {context_info}
 
             사용자 질문: {message}

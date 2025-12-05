@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-1.5-flash"
 
+    # OpenAI
+    OPENAI_API_KEY: str = ""
+
     class Config:
         env_file = ".env"
         extra = "allow"

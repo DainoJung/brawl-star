@@ -110,3 +110,56 @@ export async function generateSchedule(medicines: Array<{
 
   return response.json();
 }
+
+// Speech-to-Text API
+export async function speechToText(audioBase64: string, mimeType: string = 'audio/webm'): Promise<{
+  success: boolean;
+  text: string;
+  confidence: number;
+  error?: string;
+}> {
+  const response = await fetch(`${API_URL}/api/speech/stt`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      audio: audioBase64,
+      mime_type: mimeType,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to convert speech to text');
+  }
+
+  return response.json();
+}
+
+// Text-to-Speech API (OpenAI TTS)
+export async function textToSpeech(text: string, language: string = 'ko-KR'): Promise<{
+  success: boolean;
+  use_browser_tts: boolean;
+  text: string;
+  language: string;
+  audio?: string;
+  mime_type?: string;
+  message?: string;
+}> {
+  const response = await fetch(`${API_URL}/api/speech/tts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      text,
+      language,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to convert text to speech');
+  }
+
+  return response.json();
+}

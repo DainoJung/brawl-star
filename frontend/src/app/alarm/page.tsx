@@ -1,19 +1,50 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import BottomNavigation from '@/components/base/BottomNavigation';
-import { toggleAlarm as toggleAlarmApi } from '@/lib/supabase';
 import { useMedicineStore } from '@/store/medicine';
+
+interface AlarmItem {
+  id: string;
+  medicine_id: string;
+  medicine_name: string;
+  time: string;
+  days: string[];
+  enabled: boolean;
+}
 
 export default function AlarmPage() {
   const router = useRouter();
-  const { alarms, isLoading, fetchAll, invalidateCache } = useMedicineStore();
+  const { medicines, isLoading, fetchAll, updateMedicine } = useMedicineStore();
 
-  // Fetch alarms from store (cached)
+  // Fetch medicines from store (cached)
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  // medicines 데이터를 알람 형식으로 변환
+  const alarmItems = useMemo((): AlarmItem[] => {
+    if (!medicines || medicines.length === 0) return [];
+
+    const items: AlarmItem[] = [];
+    medicines.forEach(medicine => {
+      if (medicine.times && Array.isArray(medicine.times)) {
+        medicine.times.forEach((time: string, index: number) => {
+          items.push({
+            id: `${medicine.id}-${index}`,
+            medicine_id: medicine.id,
+            medicine_name: medicine.name,
+            time,
+            days: medicine.days || ['월', '화', '수', '목', '금', '토', '일'],
+            enabled: true, // 기본적으로 활성화
+          });
+        });
+      }
+    });
+
+    return items.sort((a, b) => a.time.localeCompare(b.time));
+  }, [medicines]);
 
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [showAlarmModal, setShowAlarmModal] = useState(false);
@@ -28,23 +59,9 @@ export default function AlarmPage() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const alarmIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleToggleAlarm = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    const alarm = alarms.find(a => a.id === id);
-    if (!alarm) return;
-
-    try {
-      await toggleAlarmApi(id, !alarm.enabled);
-      // 캐시 무효화 후 다시 fetch
-      invalidateCache();
-      await fetchAll();
-    } catch (error) {
-      console.error('Failed to toggle alarm:', error);
-    }
-  };
-
-  const handleAlarmClick = (id: string) => {
-    router.push(`/alarm/${id}`);
+  const handleAlarmClick = (alarm: AlarmItem) => {
+    // 약 상세 페이지나 수정 페이지로 이동
+    router.push(`/medicine`);
   };
 
   const playAlarmSound = useCallback(() => {
@@ -218,7 +235,7 @@ export default function AlarmPage() {
               <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
               <p className="text-gray-600">알람 목록을 불러오는 중...</p>
             </div>
-          ) : alarms.length === 0 ? (
+          ) : alarmItems.length === 0 ? (
             <div className="bg-white rounded-xl p-8 shadow-sm border border-gray-100 text-center">
               <span className="text-4xl mb-4 block">🔔</span>
               <p className="text-gray-600">등록된 알람이 없습니다.</p>
@@ -226,13 +243,11 @@ export default function AlarmPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {alarms.map((alarm) => (
+              {alarmItems.map((alarm) => (
                 <div
                   key={alarm.id}
-                  onClick={() => handleAlarmClick(alarm.id)}
-                  className={`bg-white rounded-xl p-6 shadow-sm border-2 transition-all cursor-pointer hover:shadow-md ${
-                    alarm.enabled ? 'border-blue-200 bg-blue-50' : 'border-gray-200'
-                  }`}
+                  onClick={() => handleAlarmClick(alarm)}
+                  className="bg-white rounded-xl p-6 shadow-sm border-2 transition-all cursor-pointer hover:shadow-md border-blue-200 bg-blue-50"
                 >
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center space-x-3">
@@ -246,20 +261,6 @@ export default function AlarmPage() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center space-x-3">
-                      <button
-                        onClick={(e) => handleToggleAlarm(e, alarm.id)}
-                        className={`toggle-switch relative w-14 h-8 rounded-full transition-colors ${
-                          alarm.enabled ? 'bg-blue-500' : 'bg-gray-300'
-                        }`}
-                      >
-                        <div
-                          className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition-transform shadow-sm ${
-                            alarm.enabled ? 'translate-x-6' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
-                    </div>
                   </div>
 
                   <div className="flex items-center space-x-2">
@@ -268,11 +269,7 @@ export default function AlarmPage() {
                       {alarm.days?.map((day) => (
                         <span
                           key={day}
-                          className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-medium ${
-                            alarm.enabled
-                              ? 'bg-blue-500 text-white'
-                              : 'bg-gray-200 text-gray-600'
-                          }`}
+                          className="w-8 h-8 flex items-center justify-center rounded-full text-sm font-medium bg-blue-500 text-white"
                         >
                           {day}
                         </span>
