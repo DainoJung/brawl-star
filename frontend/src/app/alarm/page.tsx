@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import BottomNavigation from '@/components/base/BottomNavigation';
 import { useMedicineStore } from '@/store/medicine';
+import { useAlarmScheduler } from '@/hooks/useAlarmScheduler';
 
 interface GroupedAlarm {
   id: string;
@@ -64,12 +65,49 @@ export default function AlarmPage() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [alarmStopped, setAlarmStopped] = useState(false);
+  const [alarmEnabled, setAlarmEnabled] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const alarmIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 알람 스케줄러 훅 사용
+  const {
+    permissionStatus,
+    isServiceWorkerReady,
+    requestPermission,
+    playAlarmSound: playScheduledAlarmSound
+  } = useAlarmScheduler({
+    schedules: groupedAlarms,
+    enabled: alarmEnabled
+  });
+
+  // 로컬스토리지에서 알람 활성화 상태 불러오기
+  useEffect(() => {
+    const saved = localStorage.getItem('alarmEnabled');
+    if (saved === 'true') {
+      setAlarmEnabled(true);
+    }
+  }, []);
+
+  // 알람 활성화 토글
+  const handleToggleAlarm = async () => {
+    if (!alarmEnabled) {
+      // 알람 활성화 시 권한 요청
+      const granted = await requestPermission();
+      if (granted) {
+        setAlarmEnabled(true);
+        localStorage.setItem('alarmEnabled', 'true');
+      } else {
+        alert('알림 권한이 필요합니다. 브라우저 설정에서 알림을 허용해주세요.');
+      }
+    } else {
+      setAlarmEnabled(false);
+      localStorage.setItem('alarmEnabled', 'false');
+    }
+  };
 
   const handleAlarmClick = () => {
     // 약 관리 페이지로 이동
@@ -237,7 +275,49 @@ export default function AlarmPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="pt-6 pb-24 px-4">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">알람 설정</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">알람 설정</h1>
+          {/* 알람 활성화 토글 */}
+          <button
+            onClick={handleToggleAlarm}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-full transition-colors ${
+              alarmEnabled
+                ? 'bg-blue-500 text-white'
+                : 'bg-gray-200 text-gray-600'
+            }`}
+          >
+            <i className={`${alarmEnabled ? 'ri-notification-line' : 'ri-notification-off-line'} text-lg`}></i>
+            <span className="text-sm font-medium">{alarmEnabled ? '알림 ON' : '알림 OFF'}</span>
+          </button>
+        </div>
+
+        {/* 알람 상태 표시 */}
+        {alarmEnabled && (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+              <div>
+                <p className="text-green-800 font-medium">알림이 활성화되어 있습니다</p>
+                <p className="text-green-600 text-sm">
+                  {isServiceWorkerReady ? '백그라운드 알림 준비 완료' : '서비스 워커 로딩 중...'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {permissionStatus === 'denied' && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+            <div className="flex items-start space-x-3">
+              <i className="ri-error-warning-line text-red-500 text-xl"></i>
+              <div>
+                <p className="text-red-800 font-medium">알림 권한이 차단되어 있습니다</p>
+                <p className="text-red-600 text-sm">브라우저 설정에서 이 사이트의 알림을 허용해주세요.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Alarm List */}
         <div>
           <h2 className="text-xl font-semibold text-gray-900 mb-4">복약 알람</h2>
