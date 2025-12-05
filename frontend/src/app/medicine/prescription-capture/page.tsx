@@ -191,24 +191,22 @@ export default function PrescriptionCapturePage() {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">촬영 예시</h3>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div className="relative">
-                  <div className="w-full h-48 bg-gray-200 rounded-xl border-2 border-green-400 flex items-center justify-center">
-                    <div className="text-center">
-                      <i className="ri-file-text-line text-4xl text-gray-400"></i>
-                      <p className="text-sm text-gray-500 mt-2">선명한 처방전</p>
-                    </div>
-                  </div>
+                  <img
+                    src="/clean.jpg"
+                    alt="선명한 처방전 예시"
+                    className="w-full h-48 object-cover rounded-xl border-2 border-green-400"
+                  />
                   <div className="absolute top-2 right-2 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-semibold flex items-center space-x-1">
                     <i className="ri-check-line"></i>
                     <span>좋아요</span>
                   </div>
                 </div>
                 <div className="relative">
-                  <div className="w-full h-48 bg-gray-200 rounded-xl border-2 border-red-400 opacity-60 flex items-center justify-center">
-                    <div className="text-center">
-                      <i className="ri-blur-off-line text-4xl text-gray-400"></i>
-                      <p className="text-sm text-gray-500 mt-2">흐린 처방전</p>
-                    </div>
-                  </div>
+                  <img
+                    src="/blur.jpg"
+                    alt="흐린 처방전 예시"
+                    className="w-full h-48 object-cover rounded-xl border-2 border-red-400 opacity-60"
+                  />
                   <div className="absolute top-2 right-2 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-semibold flex items-center space-x-1">
                     <i className="ri-close-line"></i>
                     <span>안돼요</span>
