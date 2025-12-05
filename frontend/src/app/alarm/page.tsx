@@ -5,45 +5,57 @@ import { useRouter } from 'next/navigation';
 import BottomNavigation from '@/components/base/BottomNavigation';
 import { useMedicineStore } from '@/store/medicine';
 
-interface AlarmItem {
+interface GroupedAlarm {
   id: string;
-  medicine_id: string;
-  medicine_name: string;
   time: string;
   days: string[];
-  enabled: boolean;
+  medicines: string[];
 }
 
 export default function AlarmPage() {
   const router = useRouter();
-  const { medicines, isLoading, fetchAll, updateMedicine } = useMedicineStore();
+  const { medicines, isLoading, fetchAll } = useMedicineStore();
 
   // Fetch medicines from store (cached)
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
 
-  // medicines 데이터를 알람 형식으로 변환
-  const alarmItems = useMemo((): AlarmItem[] => {
+  // medicines 데이터를 시간+요일별로 그룹화
+  const groupedAlarms = useMemo((): GroupedAlarm[] => {
     if (!medicines || medicines.length === 0) return [];
 
-    const items: AlarmItem[] = [];
+    // 시간+요일 조합별로 그룹화
+    const groupMap = new Map<string, { time: string; days: string[]; medicines: string[] }>();
+
     medicines.forEach(medicine => {
       if (medicine.times && Array.isArray(medicine.times)) {
-        medicine.times.forEach((time: string, index: number) => {
-          items.push({
-            id: `${medicine.id}-${index}`,
-            medicine_id: medicine.id,
-            medicine_name: medicine.name,
-            time,
-            days: medicine.days || ['월', '화', '수', '목', '금', '토', '일'],
-            enabled: true, // 기본적으로 활성화
-          });
+        const days = medicine.days || ['월', '화', '수', '목', '금', '토', '일'];
+        const daysKey = days.sort().join(',');
+
+        medicine.times.forEach((time: string) => {
+          const key = `${time}-${daysKey}`;
+
+          if (groupMap.has(key)) {
+            groupMap.get(key)!.medicines.push(medicine.name);
+          } else {
+            groupMap.set(key, {
+              time,
+              days,
+              medicines: [medicine.name],
+            });
+          }
         });
       }
     });
 
-    return items.sort((a, b) => a.time.localeCompare(b.time));
+    // Map을 배열로 변환하고 시간순 정렬
+    return Array.from(groupMap.entries())
+      .map(([key, value]) => ({
+        id: key,
+        ...value,
+      }))
+      .sort((a, b) => a.time.localeCompare(b.time));
   }, [medicines]);
 
   const [showPreviewModal, setShowPreviewModal] = useState(false);
@@ -59,8 +71,8 @@ export default function AlarmPage() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const alarmIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleAlarmClick = (alarm: AlarmItem) => {
-    // 약 상세 페이지나 수정 페이지로 이동
+  const handleAlarmClick = () => {
+    // 약 관리 페이지로 이동
     router.push(`/medicine`);
   };
 
@@ -235,7 +247,7 @@ export default function AlarmPage() {
               <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
               <p className="text-gray-600">알람 목록을 불러오는 중...</p>
             </div>
-          ) : alarmItems.length === 0 ? (
+          ) : groupedAlarms.length === 0 ? (
             <div className="bg-white rounded-xl p-8 shadow-sm border border-gray-100 text-center">
               <span className="text-4xl mb-4 block">🔔</span>
               <p className="text-gray-600">등록된 알람이 없습니다.</p>
@@ -243,33 +255,48 @@ export default function AlarmPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {alarmItems.map((alarm) => (
+              {groupedAlarms.map((alarm) => (
                 <div
                   key={alarm.id}
-                  onClick={() => handleAlarmClick(alarm)}
+                  onClick={handleAlarmClick}
                   className="bg-white rounded-xl p-6 shadow-sm border-2 transition-all cursor-pointer hover:shadow-md border-blue-200 bg-blue-50"
                 >
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center space-x-3">
-                      <span className="text-2xl">💊</span>
+                      <span className="text-2xl">⏰</span>
                       <div>
-                        <h3 className="text-lg font-semibold text-gray-900">
-                          {alarm.medicine_name}
-                        </h3>
-                        <p className="text-xl font-bold text-blue-600">
+                        <p className="text-2xl font-bold text-blue-600">
                           {alarm.time}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          {alarm.medicines.length}개의 약
                         </p>
                       </div>
                     </div>
                   </div>
 
+                  {/* 약 목록 */}
+                  <div className="mb-4 space-y-2">
+                    {alarm.medicines.map((name, index) => (
+                      <div key={index} className="flex items-center space-x-2">
+                        <span className="text-lg">💊</span>
+                        <span className="text-base text-gray-800">{name}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 반복 요일 */}
                   <div className="flex items-center space-x-2">
                     <span className="text-sm text-gray-600">반복:</span>
                     <div className="flex space-x-1">
-                      {alarm.days?.map((day) => (
+                      {['월', '화', '수', '목', '금', '토', '일'].map((day) => (
                         <span
                           key={day}
-                          className="w-8 h-8 flex items-center justify-center rounded-full text-sm font-medium bg-blue-500 text-white"
+                          className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-medium ${
+                            alarm.days.includes(day)
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-gray-200 text-gray-400'
+                          }`}
                         >
                           {day}
                         </span>
