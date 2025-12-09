@@ -123,14 +123,8 @@ export default function MedicinePage() {
   const handleEditSave = async () => {
     if (!editingMedicine) return;
 
-    // 복용 시간 계산
-    let times = editingMedicine.times;
-    if (editPeriod === 'daily') {
-      times = DEFAULT_TIMES.slice(0, editFrequencyCount);
-    } else {
-      // 주/월 단위에서는 복용 횟수만큼 시간 설정
-      times = DEFAULT_TIMES.slice(0, editFrequencyCount);
-    }
+    // 사용자가 설정한 복용 시간 사용 (editingMedicine.times에 이미 반영됨)
+    const times = editingMedicine.times;
 
     try {
       await updateMedicineApi(editingMedicine.id, {
