@@ -314,8 +314,10 @@ export default function AlarmPage() {
             });
           }
           console.log('[Alarm] 복용 기록 저장 완료:', currentAlarm.medicines);
-        } catch (error) {
-          console.error('[Alarm] 복용 기록 저장 오류:', error);
+        } catch (error: unknown) {
+          // 테이블이 없는 경우 등 에러가 발생해도 알람 완료는 진행
+          const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+          console.error('[Alarm] 복용 기록 저장 오류:', errorMessage);
         }
       }
 
