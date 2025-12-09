@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     # OpenAI
     OPENAI_API_KEY: str = ""
 
+    # Web Push (VAPID)
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_PRIVATE_KEY: str = ""
+    VAPID_CLAIMS_EMAIL: str = "mailto:admin@example.com"
+
     class Config:
         env_file = ".env"
         extra = "allow"

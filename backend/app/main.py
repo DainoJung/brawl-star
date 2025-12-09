@@ -1,7 +1,22 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.router import api_router
+from app.services.alarm_scheduler import alarm_scheduler
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """앱 시작/종료 시 실행되는 이벤트"""
+    # 시작 시: 알람 스케줄러 시작
+    print("[App] 알람 스케줄러 시작...")
+    await alarm_scheduler.start()
+    yield
+    # 종료 시: 알람 스케줄러 중지
+    print("[App] 알람 스케줄러 중지...")
+    await alarm_scheduler.stop()
+
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -9,6 +24,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
+    lifespan=lifespan,
 )
 
 # CORS 설정

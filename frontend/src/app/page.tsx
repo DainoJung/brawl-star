@@ -9,13 +9,25 @@ import { useMedicineStore } from '@/store/medicine';
 
 export default function Home() {
   const router = useRouter();
-  const { userName, medicines, isLoading, fetchAll } = useMedicineStore();
+  const {
+    userName,
+    medicines,
+    isLoading,
+    hasHydrated,
+    todayLogs,
+    fetchAll,
+    fetchTodayLogs
+  } = useMedicineStore();
 
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    // hydration 완료 후에만 fetch
+    if (hasHydrated) {
+      fetchAll();
+      fetchTodayLogs();
+    }
+  }, [hasHydrated, fetchAll, fetchTodayLogs]);
 
-  // 오늘의 스케줄 계산 (medicines 사용) - 같은 시간 그룹화
+  // 오늘의 스케줄 계산 (medicines + 복용 기록 사용) - 같은 시간 그룹화
   const { groupedSchedules, nextAlarm } = useMemo(() => {
     if (!medicines || medicines.length === 0) {
       return { groupedSchedules: [], nextAlarm: null };
@@ -42,23 +54,40 @@ export default function Home() {
       }
     });
 
-    // 그룹화된 스케줄 생성
+    // 복용 기록 기반으로 상태 결정
+    // time + medicine_name 조합으로 복용 여부 확인
+    const takenSet = new Set(
+      todayLogs
+        .filter(log => log.status === 'taken')
+        .map(log => `${log.scheduled_time}-${log.medicine_name}`)
+    );
+
+    // 그룹화된 스케줄 생성 (복용 기록 반영)
     const grouped = Array.from(timeGroups.entries())
-      .map(([time, names]) => ({
-        time,
-        names,
-        status: (time < currentTime ? 'completed' : 'pending') as 'pending' | 'completed',
-      }))
+      .map(([time, names]) => {
+        // 해당 시간의 모든 약이 복용되었는지 확인
+        const allTaken = names.every(name => takenSet.has(`${time}-${name}`));
+
+        // 상태 결정: 모두 복용 → completed, 그 외 → pending
+        const status = allTaken ? 'completed' : 'pending';
+
+        return {
+          time,
+          names,
+          status: status as 'pending' | 'completed',
+          takenCount: names.filter(name => takenSet.has(`${time}-${name}`)).length,
+        };
+      })
       .sort((a, b) => a.time.localeCompare(b.time));
 
-    // 다음 알람 찾기
-    const nextGroup = grouped.find(g => g.time > currentTime);
+    // 다음 알람 찾기 (아직 복용하지 않은 것 중에서)
+    const nextGroup = grouped.find(g => g.status === 'pending' && g.time >= currentTime);
 
     return {
       groupedSchedules: grouped,
       nextAlarm: nextGroup ? { time: nextGroup.time, names: nextGroup.names } : null,
     };
-  }, [medicines]);
+  }, [medicines, todayLogs]);
 
   const formatTime = (time: string) => {
     const [hours, minutes] = time.split(':');
@@ -71,6 +100,14 @@ export default function Home() {
   const pendingCount = groupedSchedules.filter(s => s.status === 'pending')
     .reduce((acc, g) => acc + g.names.length, 0);
 
+  const completedCount = groupedSchedules.filter(s => s.status === 'completed')
+    .reduce((acc, g) => acc + g.names.length, 0);
+
+  const totalCount = groupedSchedules.reduce((acc, g) => acc + g.names.length, 0);
+
+  // hydration 전이거나 로딩 중일 때만 로딩 표시
+  const dataLoading = !hasHydrated || isLoading;
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Main Content */}
@@ -81,7 +118,7 @@ export default function Home() {
             👋 안녕하세요, {userName}님
           </h1>
           <p className="text-lg text-gray-600">
-            {isLoading ? '로딩 중...' :
+            {dataLoading ? '로딩 중...' :
               groupedSchedules.length === 0
                 ? '등록된 복용 일정이 없습니다'
                 : pendingCount > 0
@@ -90,9 +127,55 @@ export default function Home() {
           </p>
         </div>
 
+        {/* 복용 현황 요약 */}
+        {!dataLoading && totalCount > 0 && (
+          <div className="bg-white rounded-xl p-4 mb-6 shadow-sm border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                  <span className="text-2xl">💊</span>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">오늘의 복용 현황</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {completedCount}/{totalCount} 완료
+                  </p>
+                </div>
+              </div>
+              <div className="w-16 h-16 relative">
+                <svg className="w-16 h-16 transform -rotate-90">
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="28"
+                    fill="none"
+                    stroke="#e5e7eb"
+                    strokeWidth="6"
+                  />
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="28"
+                    fill="none"
+                    stroke={completedCount === totalCount ? '#22c55e' : '#3b82f6'}
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeDasharray={`${(completedCount / totalCount) * 176} 176`}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-sm font-bold text-gray-700">
+                    {Math.round((completedCount / totalCount) * 100)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Medicine Cards */}
         <div className="space-y-4 mb-6">
-          {isLoading ? (
+          {dataLoading ? (
             <div className="bg-white rounded-xl p-6 text-center">
               <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
               <p className="text-gray-500">복용 일정을 불러오는 중...</p>

@@ -1,11 +1,23 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Medicine, MedicineResult, MedicineSchedule, AlarmSetting } from '@/types';
-import { getMedicines, getAlarms } from '@/lib/supabase';
+import { getMedicines, getAlarms, getTodayMedicineLogs } from '@/lib/supabase';
+
+interface MedicineLog {
+  id: string;
+  medicine_name: string;
+  scheduled_time: string;
+  taken_at: string;
+  status: 'taken' | 'skipped' | 'missed';
+}
 
 const TEMP_USER_ID = '00000000-0000-0000-0000-000000000001';
 
 interface MedicineState {
+  // Hydration state
+  hasHydrated: boolean;
+  setHasHydrated: (state: boolean) => void;
+
   // Current medicines
   medicines: Medicine[];
   setMedicines: (medicines: Medicine[]) => void;
@@ -34,6 +46,12 @@ interface MedicineState {
   userName: string;
   setUserName: (name: string) => void;
 
+  // Today's logs (for home page)
+  todayLogs: MedicineLog[];
+  setTodayLogs: (logs: MedicineLog[]) => void;
+  lastLogsFetchedAt: number | null;
+  fetchTodayLogs: () => Promise<void>;
+
   // Data fetching & caching
   isLoading: boolean;
   lastFetchedAt: number | null;
@@ -46,6 +64,10 @@ interface MedicineState {
 export const useMedicineStore = create<MedicineState>()(
   persist(
     (set, get) => ({
+      // Hydration state
+      hasHydrated: false,
+      setHasHydrated: (state) => set({ hasHydrated: state }),
+
       // Medicines
       medicines: [],
       setMedicines: (medicines) => set({ medicines }),
@@ -100,6 +122,31 @@ export const useMedicineStore = create<MedicineState>()(
       // User
       userName: '김할머니',
       setUserName: (name) => set({ userName: name }),
+
+      // Today's logs
+      todayLogs: [],
+      setTodayLogs: (logs) => set({ todayLogs: logs }),
+      lastLogsFetchedAt: null,
+
+      fetchTodayLogs: async () => {
+        const { lastLogsFetchedAt } = get();
+        const now = Date.now();
+
+        // 1분 이내에 fetch했으면 캐시 사용 (로그는 더 자주 업데이트될 수 있음)
+        if (lastLogsFetchedAt && now - lastLogsFetchedAt < 60 * 1000) {
+          return;
+        }
+
+        try {
+          const logs = await getTodayMedicineLogs(TEMP_USER_ID);
+          set({
+            todayLogs: logs || [],
+            lastLogsFetchedAt: now,
+          });
+        } catch (error) {
+          console.error('Failed to fetch today logs:', error);
+        }
+      },
 
       // Data fetching & caching
       isLoading: false,
@@ -159,7 +206,7 @@ export const useMedicineStore = create<MedicineState>()(
       },
 
       invalidateCache: () => {
-        set({ lastFetchedAt: null });
+        set({ lastFetchedAt: null, lastLogsFetchedAt: null });
       },
     }),
     {
@@ -170,6 +217,9 @@ export const useMedicineStore = create<MedicineState>()(
         userName: state.userName,
         lastFetchedAt: state.lastFetchedAt,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

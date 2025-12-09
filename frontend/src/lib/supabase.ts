@@ -236,6 +236,51 @@ export async function saveChatMessage(message: {
   return data;
 }
 
+// 복용 기록 (Medicine Logs)
+export async function addMedicineLog(log: {
+  user_id: string;
+  medicine_id?: string;
+  medicine_name: string;
+  scheduled_time: string;
+  taken_at: string;
+  status: 'taken' | 'skipped' | 'missed';
+  photo_url?: string;
+}) {
+  const { data, error } = await supabase
+    .from('medicine_logs')
+    .insert([log])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function getMedicineLogs(userId: string, date?: string) {
+  let query = supabase
+    .from('medicine_logs')
+    .select('*')
+    .eq('user_id', userId)
+    .order('taken_at', { ascending: false });
+
+  if (date) {
+    // 해당 날짜의 기록만 가져오기
+    const startOfDay = `${date}T00:00:00`;
+    const endOfDay = `${date}T23:59:59`;
+    query = query.gte('taken_at', startOfDay).lte('taken_at', endOfDay);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw error;
+  return data;
+}
+
+export async function getTodayMedicineLogs(userId: string) {
+  const today = new Date().toISOString().split('T')[0];
+  return getMedicineLogs(userId, today);
+}
+
 // User profile
 export async function getOrCreateProfile(userId: string, name?: string) {
   // Try to get existing profile

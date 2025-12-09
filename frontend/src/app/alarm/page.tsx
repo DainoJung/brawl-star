@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import BottomNavigation from '@/components/base/BottomNavigation';
 import { useMedicineStore } from '@/store/medicine';
 import { useAlarmScheduler } from '@/hooks/useAlarmScheduler';
+import { usePushSubscription } from '@/hooks/usePushSubscription';
+import { addMedicineLog } from '@/lib/supabase';
+
+const TEMP_USER_ID = '00000000-0000-0000-0000-000000000001';
 
 interface GroupedAlarm {
   id: string;
@@ -15,12 +19,14 @@ interface GroupedAlarm {
 
 export default function AlarmPage() {
   const router = useRouter();
-  const { medicines, isLoading, fetchAll } = useMedicineStore();
+  const { medicines, isLoading, hasHydrated, fetchAll } = useMedicineStore();
 
-  // Fetch medicines from store (cached)
+  // Fetch medicines from store (cached) - hydration 완료 후에만
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    if (hasHydrated) {
+      fetchAll();
+    }
+  }, [hasHydrated, fetchAll]);
 
   // medicines 데이터를 시간+요일별로 그룹화
   const groupedAlarms = useMemo((): GroupedAlarm[] => {
@@ -66,6 +72,7 @@ export default function AlarmPage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [alarmStopped, setAlarmStopped] = useState(false);
   const [alarmEnabled, setAlarmEnabled] = useState(false);
+  const [currentAlarm, setCurrentAlarm] = useState<GroupedAlarm | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -73,15 +80,49 @@ export default function AlarmPage() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const alarmIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // 알람 발생 시 모달 표시
+  const handleAlarmTriggered = useCallback((schedule: GroupedAlarm) => {
+    console.log('[Alarm] 알람 트리거됨:', schedule);
+    setCurrentAlarm(schedule);
+    setShowAlarmModal(true);
+    setAlarmStopped(false);
+    setCapturedImage(null);
+    setShowCamera(false);
+
+    // 3초마다 알람 반복
+    if (alarmIntervalRef.current) {
+      clearInterval(alarmIntervalRef.current);
+    }
+    alarmIntervalRef.current = setInterval(() => {
+      playAlarmSound();
+    }, 3000);
+  }, []);
+
   // 알람 스케줄러 훅 사용
   const {
     permissionStatus,
     isServiceWorkerReady,
     requestPermission,
-    playAlarmSound: playScheduledAlarmSound
+    playAlarmSound: playScheduledAlarmSound,
+    triggerAlarm
   } = useAlarmScheduler({
     schedules: groupedAlarms,
-    enabled: alarmEnabled
+    enabled: alarmEnabled,
+    onAlarmTriggered: handleAlarmTriggered
+  });
+
+  // Push 구독 훅 사용 (백그라운드 알림용)
+  const {
+    isSupported: isPushSupported,
+    isSubscribed: isPushSubscribed,
+    isLoading: isPushLoading,
+    error: pushError,
+    subscribe: subscribePush,
+    unsubscribe: unsubscribePush,
+    sendTestNotification,
+  } = usePushSubscription({
+    userId: TEMP_USER_ID,
+    autoSubscribe: false, // 수동으로 구독하도록 설정
   });
 
   // 로컬스토리지에서 알람 활성화 상태 불러오기
@@ -100,12 +141,28 @@ export default function AlarmPage() {
       if (granted) {
         setAlarmEnabled(true);
         localStorage.setItem('alarmEnabled', 'true');
+
+        // 백그라운드 Push 알림도 함께 구독 (iOS PWA 지원)
+        if (isPushSupported && !isPushSubscribed) {
+          console.log('[Alarm] 백그라운드 Push 구독 시도...');
+          const pushResult = await subscribePush();
+          if (pushResult) {
+            console.log('[Alarm] 백그라운드 Push 구독 성공');
+          } else {
+            console.log('[Alarm] 백그라운드 Push 구독 실패 (앱 내 알림은 작동)');
+          }
+        }
       } else {
         alert('알림 권한이 필요합니다. 브라우저 설정에서 알림을 허용해주세요.');
       }
     } else {
       setAlarmEnabled(false);
       localStorage.setItem('alarmEnabled', 'false');
+
+      // 백그라운드 Push 구독도 해제
+      if (isPushSubscribed) {
+        await unsubscribePush();
+      }
     }
   };
 
@@ -229,20 +286,44 @@ export default function AlarmPage() {
     verifyMedicinePhoto(imageData);
   };
 
-  const verifyMedicinePhoto = (imageData: string) => {
+  const verifyMedicinePhoto = async (imageData: string) => {
     setIsVerifying(true);
 
     // 실제 구현에서는 AI로 약 사진 검증
-    // 여기서는 시뮬레이션 (2초 후 성공)
-    setTimeout(() => {
+    // 여기서는 시뮬레이션 (1.5초 후 성공)
+    setTimeout(async () => {
       setIsVerifying(false);
       setAlarmStopped(true);
       stopAlarm();
 
-      // 3초 후 모달 닫기
+      // 복용 기록 저장
+      if (currentAlarm) {
+        const now = new Date();
+        const takenAt = now.toISOString();
+
+        try {
+          // 현재 알람의 모든 약에 대해 복용 기록 저장
+          for (const medicineName of currentAlarm.medicines) {
+            await addMedicineLog({
+              user_id: TEMP_USER_ID,
+              medicine_name: medicineName,
+              scheduled_time: currentAlarm.time,
+              taken_at: takenAt,
+              status: 'taken',
+              // photo_url: imageData // 실제 구현시 이미지 업로드 후 URL 저장
+            });
+          }
+          console.log('[Alarm] 복용 기록 저장 완료:', currentAlarm.medicines);
+        } catch (error) {
+          console.error('[Alarm] 복용 기록 저장 오류:', error);
+        }
+      }
+
+      // 2초 후 모달 닫기
       setTimeout(() => {
         setShowAlarmModal(false);
         setCapturedImage(null);
+        setCurrentAlarm(null);
       }, 2000);
     }, 1500);
   };
@@ -299,10 +380,30 @@ export default function AlarmPage() {
               <div>
                 <p className="text-green-800 font-medium">알림이 활성화되어 있습니다</p>
                 <p className="text-green-600 text-sm">
-                  {isServiceWorkerReady ? '백그라운드 알림 준비 완료' : '서비스 워커 로딩 중...'}
+                  {isPushSubscribed
+                    ? '앱을 닫아도 알림을 받을 수 있습니다'
+                    : isServiceWorkerReady
+                    ? '앱이 열려있을 때만 알림을 받습니다'
+                    : '서비스 워커 로딩 중...'}
                 </p>
               </div>
             </div>
+            {/* 테스트 알림 버튼 */}
+            {isPushSubscribed && (
+              <button
+                onClick={async () => {
+                  const success = await sendTestNotification();
+                  if (success) {
+                    alert('테스트 알림이 발송되었습니다. 잠시 후 알림이 도착합니다.');
+                  } else {
+                    alert('테스트 알림 발송에 실패했습니다.');
+                  }
+                }}
+                className="mt-3 w-full py-2 bg-green-100 text-green-700 rounded-lg text-sm font-medium hover:bg-green-200 transition-colors"
+              >
+                🔔 테스트 알림 보내기
+              </button>
+            )}
           </div>
         )}
 
@@ -320,9 +421,8 @@ export default function AlarmPage() {
 
         {/* Alarm List */}
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">복약 알람</h2>
 
-          {isLoading ? (
+          {!hasHydrated || isLoading ? (
             <div className="bg-white rounded-xl p-8 shadow-sm border border-gray-100 text-center">
               <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
               <p className="text-gray-600">알람 목록을 불러오는 중...</p>
@@ -460,8 +560,12 @@ export default function AlarmPage() {
                   </div>
 
                   <h2 className="text-3xl font-bold text-white mb-2">복약 시간!</h2>
-                  <p className="text-xl text-blue-100 mb-2">아침 약 (혈압약)</p>
-                  <p className="text-5xl font-bold text-white mb-8">08:00</p>
+                  <p className="text-xl text-blue-100 mb-2">
+                    {currentAlarm?.medicines.join(', ') || '약 복용'}
+                  </p>
+                  <p className="text-5xl font-bold text-white mb-8">
+                    {currentAlarm?.time || '--:--'}
+                  </p>
 
                   {/* 안내 메시지 */}
                   <div className="bg-white/10 backdrop-blur rounded-2xl p-6 mb-8 max-w-sm mx-auto">

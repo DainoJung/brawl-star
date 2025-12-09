@@ -12,13 +12,20 @@ interface AlarmSchedule {
 interface UseAlarmSchedulerOptions {
   schedules: AlarmSchedule[];
   enabled: boolean;
+  onAlarmTriggered?: (schedule: AlarmSchedule) => void;
 }
 
-export function useAlarmScheduler({ schedules, enabled }: UseAlarmSchedulerOptions) {
+export function useAlarmScheduler({ schedules, enabled, onAlarmTriggered }: UseAlarmSchedulerOptions) {
   const [permissionStatus, setPermissionStatus] = useState<NotificationPermission>('default');
   const [isServiceWorkerReady, setIsServiceWorkerReady] = useState(false);
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastNotifiedRef = useRef<Set<string>>(new Set());
+  const onAlarmTriggeredRef = useRef(onAlarmTriggered);
+
+  // 콜백 ref 업데이트
+  useEffect(() => {
+    onAlarmTriggeredRef.current = onAlarmTriggered;
+  }, [onAlarmTriggered]);
 
   // Service Worker 등록
   useEffect(() => {
@@ -36,7 +43,23 @@ export function useAlarmScheduler({ schedules, enabled }: UseAlarmSchedulerOptio
       .catch((error) => {
         console.error('[Alarm] Service Worker 등록 실패:', error);
       });
-  }, []);
+
+    // Service Worker 메시지 수신 (알림 클릭 등)
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'NOTIFICATION_CLICKED') {
+        const scheduleId = event.data.data?.scheduleId;
+        const schedule = schedules.find(s => s.id === scheduleId);
+        if (schedule && onAlarmTriggeredRef.current) {
+          onAlarmTriggeredRef.current(schedule);
+        }
+      }
+    };
+
+    navigator.serviceWorker.addEventListener('message', handleMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleMessage);
+    };
+  }, [schedules]);
 
   // 알림 권한 확인
   useEffect(() => {
@@ -67,43 +90,6 @@ export function useAlarmScheduler({ schedules, enabled }: UseAlarmSchedulerOptio
     setPermissionStatus(permission);
     return permission === 'granted';
   }, []);
-
-  // 알림 표시
-  const showNotification = useCallback(
-    async (schedule: AlarmSchedule) => {
-      if (permissionStatus !== 'granted') {
-        console.log('[Alarm] 알림 권한 없음');
-        return;
-      }
-
-      const medicineList = schedule.medicines.join(', ');
-      const title = '💊 복약 시간입니다!';
-      const body = `${schedule.time} - ${medicineList}`;
-
-      // Service Worker를 통해 알림 표시
-      if (isServiceWorkerReady && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({
-          type: 'SHOW_NOTIFICATION',
-          title,
-          body,
-          tag: `alarm-${schedule.id}`,
-          data: { scheduleId: schedule.id, medicines: schedule.medicines }
-        });
-      } else {
-        // 폴백: 직접 알림 표시
-        new Notification(title, {
-          body,
-          icon: '/icon-192.png',
-          tag: `alarm-${schedule.id}`,
-          requireInteraction: true
-        });
-      }
-
-      // 소리 재생
-      playAlarmSound();
-    },
-    [permissionStatus, isServiceWorkerReady]
-  );
 
   // 알람 소리 재생
   const playAlarmSound = useCallback(() => {
@@ -142,6 +128,56 @@ export function useAlarmScheduler({ schedules, enabled }: UseAlarmSchedulerOptio
       console.error('[Alarm] 소리 재생 오류:', error);
     }
   }, []);
+
+  // 알림 표시
+  const showNotification = useCallback(
+    async (schedule: AlarmSchedule) => {
+      if (permissionStatus !== 'granted') {
+        console.log('[Alarm] 알림 권한 없음');
+        return;
+      }
+
+      const medicineList = schedule.medicines.join(', ');
+      const title = '💊 복약 시간입니다!';
+      const body = `${schedule.time} - ${medicineList}`;
+
+      // Service Worker를 통해 알림 표시
+      if (isServiceWorkerReady && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({
+          type: 'SHOW_NOTIFICATION',
+          title,
+          body,
+          tag: `alarm-${schedule.id}`,
+          data: { scheduleId: schedule.id, medicines: schedule.medicines, time: schedule.time }
+        });
+      } else {
+        // 폴백: 직접 알림 표시
+        const notification = new Notification(title, {
+          body,
+          icon: '/icon-192.png',
+          tag: `alarm-${schedule.id}`,
+          requireInteraction: true
+        });
+
+        notification.onclick = () => {
+          window.focus();
+          if (onAlarmTriggeredRef.current) {
+            onAlarmTriggeredRef.current(schedule);
+          }
+          notification.close();
+        };
+      }
+
+      // 소리 재생
+      playAlarmSound();
+
+      // 콜백 호출 (알람 모달 표시)
+      if (onAlarmTriggeredRef.current) {
+        onAlarmTriggeredRef.current(schedule);
+      }
+    },
+    [permissionStatus, isServiceWorkerReady, playAlarmSound]
+  );
 
   // 현재 시간이 알람 시간인지 확인
   const checkAlarms = useCallback(() => {
@@ -222,11 +258,17 @@ export function useAlarmScheduler({ schedules, enabled }: UseAlarmSchedulerOptio
     resetAtMidnight();
   }, []);
 
+  // 수동으로 알람 트리거 (테스트용)
+  const triggerAlarm = useCallback((schedule: AlarmSchedule) => {
+    showNotification(schedule);
+  }, [showNotification]);
+
   return {
     permissionStatus,
     isServiceWorkerReady,
     requestPermission,
     showNotification,
-    playAlarmSound
+    playAlarmSound,
+    triggerAlarm
   };
 }

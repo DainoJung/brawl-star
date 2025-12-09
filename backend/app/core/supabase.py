@@ -2,6 +2,7 @@ from supabase import create_client, Client
 from app.core.config import settings
 
 supabase: Client | None = None
+supabase_admin: Client | None = None
 
 
 def get_supabase() -> Client:
@@ -15,8 +16,11 @@ def get_supabase() -> Client:
 
 
 def get_supabase_admin() -> Client:
-    """서비스 키를 사용하는 관리자 클라이언트"""
-    return create_client(
-        settings.SUPABASE_URL,
-        settings.SUPABASE_SERVICE_KEY
-    )
+    """서비스 키를 사용하는 관리자 클라이언트 (RLS 우회)"""
+    global supabase_admin
+    if supabase_admin is None:
+        supabase_admin = create_client(
+            settings.SUPABASE_URL,
+            settings.SUPABASE_SERVICE_KEY
+        )
+    return supabase_admin
