@@ -17,31 +17,101 @@ interface Medicine {
   days?: string[];
 }
 
-const FREQUENCY_OPTIONS = [
-  { value: '하루 1회', times: 1 },
-  { value: '하루 2회', times: 2 },
-  { value: '하루 3회', times: 3 },
-  { value: '하루 4회', times: 4 },
+// 복용 주기 옵션
+const PERIOD_OPTIONS = [
+  { value: 'daily', label: '일' },
+  { value: 'weekly', label: '주' },
+  { value: 'monthly', label: '월' },
 ];
+
+// 복용 횟수 옵션
+const FREQUENCY_COUNT_OPTIONS = [
+  { value: 1, label: '1회' },
+  { value: 2, label: '2회' },
+  { value: 3, label: '3회' },
+  { value: 4, label: '4회' },
+];
+
+// 주간 요일 옵션
+const WEEKDAY_OPTIONS = [
+  { value: 'mon', label: '월' },
+  { value: 'tue', label: '화' },
+  { value: 'wed', label: '수' },
+  { value: 'thu', label: '목' },
+  { value: 'fri', label: '금' },
+  { value: 'sat', label: '토' },
+  { value: 'sun', label: '일' },
+];
+
+// 월간 날짜 옵션 (1~31일)
+const MONTHLY_DATE_OPTIONS = Array.from({ length: 31 }, (_, i) => ({
+  value: i + 1,
+  label: `${i + 1}일`,
+}));
 
 const DEFAULT_TIMES = ['08:00', '12:00', '18:00', '22:00'];
 
+// 레거시 frequency 형식에서 파싱
+const parseFrequency = (frequency: string): { period: string; count: number } => {
+  if (frequency.includes('하루')) {
+    const match = frequency.match(/(\d+)/);
+    return { period: 'daily', count: match ? parseInt(match[1]) : 1 };
+  }
+  if (frequency.includes('주')) {
+    const match = frequency.match(/(\d+)/);
+    return { period: 'weekly', count: match ? parseInt(match[1]) : 1 };
+  }
+  if (frequency.includes('월')) {
+    const match = frequency.match(/(\d+)/);
+    return { period: 'monthly', count: match ? parseInt(match[1]) : 1 };
+  }
+  return { period: 'daily', count: 1 };
+};
+
+// 새 형식을 저장용 문자열로 변환
+const formatFrequency = (period: string, count: number): string => {
+  const periodLabel = period === 'daily' ? '하루' : period === 'weekly' ? '주' : '월';
+  return `${periodLabel} ${count}회`;
+};
+
+// 용량에서 숫자 추출
+const parseDosage = (dosage: string): number => {
+  const match = dosage.match(/(\d+)/);
+  return match ? parseInt(match[1]) : 1;
+};
+
 export default function MedicinePage() {
   const router = useRouter();
-  const { medicines, isLoading, fetchAll, invalidateCache } = useMedicineStore();
+  const { medicines, isLoading, hasHydrated, fetchAll, invalidateCache } = useMedicineStore();
 
   const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
   const [deletingMedicine, setDeletingMedicine] = useState<Medicine | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-  // Fetch medicines from store (cached)
+  // 수정 모달용 추가 상태
+  const [editDosageAmount, setEditDosageAmount] = useState<number>(1);
+  const [editPeriod, setEditPeriod] = useState<string>('daily');
+  const [editFrequencyCount, setEditFrequencyCount] = useState<number>(1);
+  const [editSelectedDays, setEditSelectedDays] = useState<string[]>([]);
+  const [editSelectedDates, setEditSelectedDates] = useState<number[]>([]);
+
+  // Fetch medicines from store (cached) - hydration 완료 후에만
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    if (hasHydrated) {
+      fetchAll();
+    }
+  }, [hasHydrated, fetchAll]);
 
   const handleEditClick = (medicine: Medicine) => {
     setEditingMedicine({ ...medicine });
+    // 기존 값으로 상태 초기화
+    setEditDosageAmount(parseDosage(medicine.dosage));
+    const parsed = parseFrequency(medicine.frequency);
+    setEditPeriod(parsed.period);
+    setEditFrequencyCount(parsed.count);
+    setEditSelectedDays(medicine.days || []);
+    setEditSelectedDates([]);
     setShowEditModal(true);
   };
 
@@ -53,13 +123,23 @@ export default function MedicinePage() {
   const handleEditSave = async () => {
     if (!editingMedicine) return;
 
+    // 복용 시간 계산
+    let times = editingMedicine.times;
+    if (editPeriod === 'daily') {
+      times = DEFAULT_TIMES.slice(0, editFrequencyCount);
+    } else {
+      // 주/월 단위에서는 복용 횟수만큼 시간 설정
+      times = DEFAULT_TIMES.slice(0, editFrequencyCount);
+    }
+
     try {
       await updateMedicineApi(editingMedicine.id, {
         name: editingMedicine.name,
-        dosage: editingMedicine.dosage,
-        frequency: editingMedicine.frequency,
+        dosage: `${editDosageAmount}정`,
+        frequency: formatFrequency(editPeriod, editFrequencyCount),
         timing: editingMedicine.timing,
-        times: editingMedicine.times,
+        times: times,
+        days: editPeriod === 'weekly' ? editSelectedDays : undefined,
       });
       // 캐시 무효화 후 다시 fetch
       invalidateCache();
@@ -88,18 +168,46 @@ export default function MedicinePage() {
     }
   };
 
-  const handleFrequencyChange = (frequency: string) => {
-    if (!editingMedicine) return;
+  // 복용 주기 변경 시
+  const handlePeriodChange = (period: string) => {
+    setEditPeriod(period);
+    // 주기 변경 시 선택된 요일/날짜 초기화
+    setEditSelectedDays([]);
+    setEditSelectedDates([]);
+    // 복용 시간도 횟수에 맞게 재설정
+    if (editingMedicine) {
+      const newTimes = DEFAULT_TIMES.slice(0, editFrequencyCount);
+      setEditingMedicine({
+        ...editingMedicine,
+        times: newTimes,
+      });
+    }
+  };
 
-    const freqOption = FREQUENCY_OPTIONS.find(f => f.value === frequency);
-    const timesCount = freqOption?.times || 1;
-    const newTimes = DEFAULT_TIMES.slice(0, timesCount);
+  // 복용 횟수 변경 시 복용 시간도 업데이트
+  const handleFrequencyCountChange = (count: number) => {
+    setEditFrequencyCount(count);
+    if (editingMedicine) {
+      const newTimes = DEFAULT_TIMES.slice(0, count);
+      setEditingMedicine({
+        ...editingMedicine,
+        times: newTimes,
+      });
+    }
+  };
 
-    setEditingMedicine({
-      ...editingMedicine,
-      frequency,
-      times: newTimes,
-    });
+  // 요일 토글
+  const handleDayToggle = (day: string) => {
+    setEditSelectedDays(prev =>
+      prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+    );
+  };
+
+  // 날짜 토글
+  const handleDateToggle = (date: number) => {
+    setEditSelectedDates(prev =>
+      prev.includes(date) ? prev.filter(d => d !== date) : [...prev, date]
+    );
   };
 
   const handleTimeChange = (index: number, time: string) => {
@@ -140,7 +248,7 @@ export default function MedicinePage() {
         <div>
           <h2 className="text-xl font-semibold text-gray-900 mb-4">현재 복용 중인 약</h2>
 
-          {isLoading ? (
+          {!hasHydrated || isLoading ? (
             <div className="bg-white rounded-xl p-8 shadow-sm border border-gray-100 text-center">
               <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
               <p className="text-gray-600">약 목록을 불러오는 중...</p>
@@ -172,7 +280,7 @@ export default function MedicinePage() {
                         </p>
                         <p className="text-base text-gray-600">
                           <span className="font-medium">복용 시기:</span>{' '}
-                          {medicine.timing === 'before_meal' ? '식전' : '식후'}
+                          {medicine.timing === 'before_meal' ? '식전' : medicine.timing === 'after_meal' ? '식후' : '상관없음'}
                         </p>
                         <p className="text-base text-gray-600">
                           <span className="font-medium">복용 시간:</span>{' '}
@@ -227,46 +335,30 @@ export default function MedicinePage() {
                 />
               </div>
 
-              {/* 용량 */}
+              {/* 용량 - 숫자 입력 + 정 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   용량
                 </label>
-                <input
-                  type="text"
-                  value={editingMedicine.dosage}
-                  onChange={(e) =>
-                    setEditingMedicine({ ...editingMedicine, dosage: e.target.value })
-                  }
-                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  placeholder="예: 1정, 2캡슐"
-                />
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={editDosageAmount}
+                    onChange={(e) => setEditDosageAmount(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-24 p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-center text-lg font-medium"
+                  />
+                  <span className="text-lg font-medium text-gray-700">정</span>
+                </div>
               </div>
 
-              {/* 복용 횟수 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  복용 횟수
-                </label>
-                <select
-                  value={editingMedicine.frequency}
-                  onChange={(e) => handleFrequencyChange(e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                >
-                  {FREQUENCY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.value}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 복용 시기 */}
+              {/* 복용 시기 - 식전, 식후, 상관없음 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   복용 시기
                 </label>
-                <div className="flex space-x-3">
+                <div className="flex space-x-2">
                   <button
                     onClick={() =>
                       setEditingMedicine({ ...editingMedicine, timing: 'before_meal' })
@@ -291,8 +383,112 @@ export default function MedicinePage() {
                   >
                     식후
                   </button>
+                  <button
+                    onClick={() =>
+                      setEditingMedicine({ ...editingMedicine, timing: 'anytime' })
+                    }
+                    className={`px-3 py-3 rounded-xl font-medium transition-colors text-sm ${
+                      editingMedicine.timing === 'anytime'
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    상관없음
+                  </button>
                 </div>
               </div>
+
+              {/* 복용 횟수 - 일/주/월 + 횟수 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  복용 횟수
+                </label>
+                {/* 주기 선택 (일/주/월) */}
+                <div className="flex space-x-2 mb-3">
+                  {PERIOD_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => handlePeriodChange(option.value)}
+                      className={`flex-1 py-2.5 rounded-xl font-medium transition-colors ${
+                        editPeriod === option.value
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                {/* 횟수 선택 */}
+                <div className="flex space-x-2">
+                  {FREQUENCY_COUNT_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => handleFrequencyCountChange(option.value)}
+                      className={`flex-1 py-2.5 rounded-xl font-medium transition-colors ${
+                        editFrequencyCount === option.value
+                          ? 'bg-green-500 text-white'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-sm text-gray-500 mt-2">
+                  {editPeriod === 'daily' && `매일 ${editFrequencyCount}회 복용`}
+                  {editPeriod === 'weekly' && `매주 ${editFrequencyCount}회 복용`}
+                  {editPeriod === 'monthly' && `매월 ${editFrequencyCount}회 복용`}
+                </p>
+              </div>
+
+              {/* 주간 선택 시 요일 선택 */}
+              {editPeriod === 'weekly' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    복용 요일
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {WEEKDAY_OPTIONS.map((day) => (
+                      <button
+                        key={day.value}
+                        onClick={() => handleDayToggle(day.value)}
+                        className={`w-10 h-10 rounded-full font-medium transition-colors ${
+                          editSelectedDays.includes(day.value)
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        {day.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 월간 선택 시 날짜 선택 */}
+              {editPeriod === 'monthly' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    복용 날짜
+                  </label>
+                  <div className="grid grid-cols-7 gap-1.5 max-h-40 overflow-y-auto">
+                    {MONTHLY_DATE_OPTIONS.map((date) => (
+                      <button
+                        key={date.value}
+                        onClick={() => handleDateToggle(date.value)}
+                        className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
+                          editSelectedDates.includes(date.value)
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        {date.value}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* 복용 시간 */}
               <div>
